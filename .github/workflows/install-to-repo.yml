@@ -1,0 +1,259 @@
+name: Install OpenCode Boilerplate
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_repo:
+        description: 'Repositório alvo (formato: owner/repo, ex: ElioNeto/meu-repo)'
+        required: true
+        type: string
+      workflow_file:
+        description: 'Arquivo de workflow para executar localmente (ex: ci.yml)'
+        required: false
+        default: 'ci.yml'
+        type: string
+      overwrite:
+        description: 'Sobrescrever arquivos existentes?'
+        required: false
+        default: 'true'
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    name: Install to ${{ inputs.target_repo }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate owner
+        run: |
+          OWNER=$(echo "${{ inputs.target_repo }}" | cut -d'/' -f1)
+          EXPECTED="ElioNeto"
+          if [ "$OWNER" != "$EXPECTED" ]; then
+            echo "ERROR: repositório alvo deve pertencer a $EXPECTED. Recebido: $OWNER"
+            exit 1
+          fi
+          echo "OWNER=$OWNER" >> $GITHUB_ENV
+          echo "REPO=$(echo '${{ inputs.target_repo }}' | cut -d'/' -f2)" >> $GITHUB_ENV
+
+      - name: Checkout boilerplate
+        uses: actions/checkout@v4
+        with:
+          path: boilerplate
+
+      - name: Checkout target repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.target_repo }}
+          token: ${{ secrets.BOILERPLATE_TOKEN }}
+          path: target
+
+      - name: Detect stacks
+        id: detect
+        working-directory: target
+        run: |
+          HAS_GO=false
+          HAS_PYTHON=false
+          HAS_NODE=false
+          HAS_RUST=false
+          HAS_JAVA=false
+
+          [ -f go.mod ] && HAS_GO=true
+          [ -f pyproject.toml ] || [ -f requirements.txt ] || [ -f setup.py ] && HAS_PYTHON=true
+          [ -f package.json ] && HAS_NODE=true
+          [ -f Cargo.toml ] && HAS_RUST=true
+          [ -f pom.xml ] || [ -f build.gradle ] || [ -f build.gradle.kts ] && HAS_JAVA=true
+
+          echo "go=$HAS_GO"     >> $GITHUB_OUTPUT
+          echo "python=$HAS_PYTHON" >> $GITHUB_OUTPUT
+          echo "node=$HAS_NODE"   >> $GITHUB_OUTPUT
+          echo "rust=$HAS_RUST"   >> $GITHUB_OUTPUT
+          echo "java=$HAS_JAVA"   >> $GITHUB_OUTPUT
+
+          echo "Stacks detectadas:"
+          echo "  Go:     $HAS_GO"
+          echo "  Python: $HAS_PYTHON"
+          echo "  Node:   $HAS_NODE"
+          echo "  Rust:   $HAS_RUST"
+          echo "  Java:   $HAS_JAVA"
+
+      - name: Copy base files
+        run: |
+          OVERWRITE="${{ inputs.overwrite }}"
+          cp_file() {
+            local src="$1" dst="$2"
+            mkdir -p "$(dirname "$dst")"
+            if [ "$OVERWRITE" = "true" ] || [ ! -f "$dst" ]; then
+              cp "$src" "$dst"
+              echo "  copied: $dst"
+            else
+              echo "  skipped (exists): $dst"
+            fi
+          }
+          echo "Copiando arquivos base..."
+          find boilerplate/base -type f | while read src; do
+            rel="${src#boilerplate/base/}"
+            cp_file "$src" "target/$rel"
+          done
+          echo "Copiando scripts..."
+          find boilerplate/scripts -type f | while read src; do
+            rel="scripts/${src#boilerplate/scripts/}"
+            cp_file "$src" "target/$rel"
+          done
+
+      - name: Copy stack-specific files
+        run: |
+          OVERWRITE="${{ inputs.overwrite }}"
+          cp_file() {
+            local src="$1" dst="$2"
+            mkdir -p "$(dirname "$dst")"
+            if [ "$OVERWRITE" = "true" ] || [ ! -f "$dst" ]; then
+              cp "$src" "$dst"
+              echo "  copied: $dst"
+            else
+              echo "  skipped (exists): $dst"
+            fi
+          }
+          apply_stack() {
+            local stack="$1"
+            if [ -d "boilerplate/stacks/$stack" ]; then
+              echo "Aplicando stack: $stack"
+              find "boilerplate/stacks/$stack" -type f | while read src; do
+                rel="${src#boilerplate/stacks/$stack/}"
+                cp_file "$src" "target/$rel"
+              done
+            fi
+          }
+          [ "${{ steps.detect.outputs.go }}"     = "true" ] && apply_stack go
+          [ "${{ steps.detect.outputs.python }}" = "true" ] && apply_stack python
+          [ "${{ steps.detect.outputs.node }}"   = "true" ] && apply_stack node
+          [ "${{ steps.detect.outputs.rust }}"   = "true" ] && apply_stack rust
+          [ "${{ steps.detect.outputs.java }}"   = "true" ] && apply_stack java
+
+      - name: Build AGENTS.md
+        run: |
+          AGENTS_TARGET="target/AGENTS.md"
+          AGENTS_BASE="boilerplate/base/AGENTS.md"
+
+          # Se já existe um AGENTS.md no target, preservar o conteúdo fora das tags AUTO-GENERATED
+          if [ -f "$AGENTS_TARGET" ]; then
+            echo "AGENTS.md existente encontrado. Atualizando seção AUTO-GENERATED..."
+            CUSTOM_BEFORE=$(sed -n '/<!-- AUTO-GENERATED:START -->/{ n; q }; p' "$AGENTS_TARGET" | head -n -1 || cat "$AGENTS_TARGET")
+          fi
+
+          RULES_CONTENT=""
+          append_rules() {
+            local file="$1"
+            if [ -f "$file" ]; then
+              RULES_CONTENT="$RULES_CONTENT\n$(cat "$file")"
+            fi
+          }
+
+          append_rules "boilerplate/base/rules/general.md"
+          append_rules "boilerplate/base/rules/ci.md"
+          [ "${{ steps.detect.outputs.go }}"     = "true" ] && append_rules "boilerplate/stacks/go/rules/go.md"
+          [ "${{ steps.detect.outputs.python }}" = "true" ] && append_rules "boilerplate/stacks/python/rules/python.md"
+          [ "${{ steps.detect.outputs.node }}"   = "true" ] && append_rules "boilerplate/stacks/node/rules/node.md"
+          [ "${{ steps.detect.outputs.rust }}"   = "true" ] && append_rules "boilerplate/stacks/rust/rules/rust.md"
+          [ "${{ steps.detect.outputs.java }}"   = "true" ] && append_rules "boilerplate/stacks/java/rules/java.md"
+
+          python3 - <<'PYEOF'
+          import os, re
+
+          rules = os.environ.get('RULES_CONTENT', '')
+
+          with open('boilerplate/base/AGENTS.md', 'r') as f:
+              base = f.read()
+
+          new_section = '<!-- AUTO-GENERATED:START -->\n' + rules.strip() + '\n<!-- AUTO-GENERATED:END -->'
+          result = re.sub(
+              r'<!-- AUTO-GENERATED:START -->.*?<!-- AUTO-GENERATED:END -->',
+              new_section,
+              base,
+              flags=re.DOTALL
+          )
+
+          target = 'target/AGENTS.md'
+          if os.path.exists(target):
+              with open(target, 'r') as f:
+                  existing = f.read()
+              result = re.sub(
+                  r'<!-- AUTO-GENERATED:START -->.*?<!-- AUTO-GENERATED:END -->',
+                  new_section,
+                  existing,
+                  flags=re.DOTALL
+              )
+
+          with open(target, 'w') as f:
+              f.write(result)
+
+          print('AGENTS.md gerado.')
+          PYEOF
+        env:
+          RULES_CONTENT: ${{ env.RULES_CONTENT }}
+
+      - name: Commit and push PR branch
+        working-directory: target
+        run: |
+          git config user.name  "boilerplate-opencode[bot]"
+          git config user.email "boilerplate-opencode[bot]@users.noreply.github.com"
+
+          BRANCH="chore/opencode-boilerplate-$(date +%Y%m%d%H%M%S)"
+          git checkout -b "$BRANCH"
+
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "Nenhuma mudança detectada. Nada a commitar."
+            exit 0
+          fi
+
+          git commit -m "chore: apply opencode boilerplate
+
+          Aplicado automaticamente por ElioNeto/boilerplate-opencode.
+
+          Stacks detectadas:
+          - Go:     ${{ steps.detect.outputs.go }}
+          - Python: ${{ steps.detect.outputs.python }}
+          - Node:   ${{ steps.detect.outputs.node }}
+          - Rust:   ${{ steps.detect.outputs.rust }}
+          - Java:   ${{ steps.detect.outputs.java }}"
+
+          git push origin "$BRANCH"
+          echo "BRANCH=$BRANCH" >> $GITHUB_ENV
+
+      - name: Open Pull Request
+        env:
+          GH_TOKEN: ${{ secrets.BOILERPLATE_TOKEN }}
+        run: |
+          gh pr create \
+            --repo "${{ inputs.target_repo }}" \
+            --head "$BRANCH" \
+            --base main \
+            --title "chore: apply opencode boilerplate" \
+            --body "## OpenCode Boilerplate
+
+          Configurações aplicadas automaticamente por [ElioNeto/boilerplate-opencode](https://github.com/ElioNeto/boilerplate-opencode).
+
+          ### Stacks detectadas
+          - Go: ${{ steps.detect.outputs.go }}
+          - Python: ${{ steps.detect.outputs.python }}
+          - Node.js: ${{ steps.detect.outputs.node }}
+          - Rust: ${{ steps.detect.outputs.rust }}
+          - Java: ${{ steps.detect.outputs.java }}
+
+          ### Arquivos adicionados/atualizados
+          - \`.opencode/agents/\` — agentes delivery-loop, planner, reviewer, debugger
+          - \`.opencode/commands/shipit.md\` — comando /shipit
+          - \`.opencode/ignore\` — ignore do contexto do agente
+          - \`AGENTS.md\` — contexto do projeto para o agente
+          - \`rules/\` — regras gerais + específicas da stack
+          - \`scripts/workflow-agent.ts\` — executor local do CI
+          - \`scripts/check-todos.ts\` — verificador de TODOs
+          - \`scripts/install-deps.sh\` — instalação de dependências
+
+          ### Próximos passos
+          1. Revisar e ajustar o \`AGENTS.md\` com descrição do projeto
+          2. Rodar \`bash scripts/install-deps.sh\` para instalar dependências
+          3. Criar secret \`BOILERPLATE_TOKEN\` se quiser usar o workflow de atualização"
