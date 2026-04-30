@@ -59,17 +59,25 @@ jobs:
           HAS_RUST=false
           HAS_JAVA=false
 
-          [ -f go.mod ] && HAS_GO=true
-          [ -f pyproject.toml ] || [ -f requirements.txt ] || [ -f setup.py ] && HAS_PYTHON=true
-          [ -f package.json ] && HAS_NODE=true
-          [ -f Cargo.toml ] && HAS_RUST=true
-          [ -f pom.xml ] || [ -f build.gradle ] || [ -f build.gradle.kts ] && HAS_JAVA=true
+          if [ -f go.mod ]; then HAS_GO=true; fi
 
-          echo "go=$HAS_GO"     >> $GITHUB_OUTPUT
+          # Fix: usar if aninhado para evitar bug de precedência com || e &&
+          if [ -f pyproject.toml ] || [ -f requirements.txt ] || [ -f setup.py ]; then
+            HAS_PYTHON=true
+          fi
+
+          if [ -f package.json ]; then HAS_NODE=true; fi
+          if [ -f Cargo.toml ]; then HAS_RUST=true; fi
+
+          if [ -f pom.xml ] || [ -f build.gradle ] || [ -f build.gradle.kts ]; then
+            HAS_JAVA=true
+          fi
+
+          echo "go=$HAS_GO"         >> $GITHUB_OUTPUT
           echo "python=$HAS_PYTHON" >> $GITHUB_OUTPUT
-          echo "node=$HAS_NODE"   >> $GITHUB_OUTPUT
-          echo "rust=$HAS_RUST"   >> $GITHUB_OUTPUT
-          echo "java=$HAS_JAVA"   >> $GITHUB_OUTPUT
+          echo "node=$HAS_NODE"     >> $GITHUB_OUTPUT
+          echo "rust=$HAS_RUST"     >> $GITHUB_OUTPUT
+          echo "java=$HAS_JAVA"     >> $GITHUB_OUTPUT
 
           echo "Stacks detectadas:"
           echo "  Go:     $HAS_GO"
@@ -125,43 +133,44 @@ jobs:
               done
             fi
           }
-          [ "${{ steps.detect.outputs.go }}"     = "true" ] && apply_stack go
-          [ "${{ steps.detect.outputs.python }}" = "true" ] && apply_stack python
-          [ "${{ steps.detect.outputs.node }}"   = "true" ] && apply_stack node
-          [ "${{ steps.detect.outputs.rust }}"   = "true" ] && apply_stack rust
-          [ "${{ steps.detect.outputs.java }}"   = "true" ] && apply_stack java
+
+          # Fix: usar if em vez de [ ... ] && para evitar exit code 1 com bash -e
+          if [ "${{ steps.detect.outputs.go }}"     = "true" ]; then apply_stack go;     fi
+          if [ "${{ steps.detect.outputs.python }}" = "true" ]; then apply_stack python; fi
+          if [ "${{ steps.detect.outputs.node }}"   = "true" ]; then apply_stack node;   fi
+          if [ "${{ steps.detect.outputs.rust }}"   = "true" ]; then apply_stack rust;   fi
+          if [ "${{ steps.detect.outputs.java }}"   = "true" ]; then apply_stack java;   fi
 
       - name: Build AGENTS.md
         run: |
-          AGENTS_TARGET="target/AGENTS.md"
-          AGENTS_BASE="boilerplate/base/AGENTS.md"
+          RULES_FILE="/tmp/rules_content.txt"
+          > "$RULES_FILE"
 
-          # Se já existe um AGENTS.md no target, preservar o conteúdo fora das tags AUTO-GENERATED
-          if [ -f "$AGENTS_TARGET" ]; then
-            echo "AGENTS.md existente encontrado. Atualizando seção AUTO-GENERATED..."
-            CUSTOM_BEFORE=$(sed -n '/<!-- AUTO-GENERATED:START -->/{ n; q }; p' "$AGENTS_TARGET" | head -n -1 || cat "$AGENTS_TARGET")
-          fi
-
-          RULES_CONTENT=""
           append_rules() {
             local file="$1"
             if [ -f "$file" ]; then
-              RULES_CONTENT="$RULES_CONTENT\n$(cat "$file")"
+              cat "$file" >> "$RULES_FILE"
+              printf '\n' >> "$RULES_FILE"
             fi
           }
 
           append_rules "boilerplate/base/rules/general.md"
           append_rules "boilerplate/base/rules/ci.md"
-          [ "${{ steps.detect.outputs.go }}"     = "true" ] && append_rules "boilerplate/stacks/go/rules/go.md"
-          [ "${{ steps.detect.outputs.python }}" = "true" ] && append_rules "boilerplate/stacks/python/rules/python.md"
-          [ "${{ steps.detect.outputs.node }}"   = "true" ] && append_rules "boilerplate/stacks/node/rules/node.md"
-          [ "${{ steps.detect.outputs.rust }}"   = "true" ] && append_rules "boilerplate/stacks/rust/rules/rust.md"
-          [ "${{ steps.detect.outputs.java }}"   = "true" ] && append_rules "boilerplate/stacks/java/rules/java.md"
+
+          # Fix: usar if em vez de [ ... ] && para evitar exit code 1 com bash -e
+          if [ "${{ steps.detect.outputs.go }}"     = "true" ]; then append_rules "boilerplate/stacks/go/rules/go.md";         fi
+          if [ "${{ steps.detect.outputs.python }}" = "true" ]; then append_rules "boilerplate/stacks/python/rules/python.md"; fi
+          if [ "${{ steps.detect.outputs.node }}"   = "true" ]; then append_rules "boilerplate/stacks/node/rules/node.md";     fi
+          if [ "${{ steps.detect.outputs.rust }}"   = "true" ]; then append_rules "boilerplate/stacks/rust/rules/rust.md";     fi
+          if [ "${{ steps.detect.outputs.java }}"   = "true" ]; then append_rules "boilerplate/stacks/java/rules/java.md";     fi
 
           python3 - <<'PYEOF'
           import os, re
 
-          rules = os.environ.get('RULES_CONTENT', '')
+          # Fix: ler de arquivo temporário em vez de variável de ambiente (evita problema de multiline)
+          rules_file = '/tmp/rules_content.txt'
+          with open(rules_file, 'r') as f:
+              rules = f.read()
 
           with open('boilerplate/base/AGENTS.md', 'r') as f:
               base = f.read()
@@ -190,8 +199,6 @@ jobs:
 
           print('AGENTS.md gerado.')
           PYEOF
-        env:
-          RULES_CONTENT: ${{ env.RULES_CONTENT }}
 
       - name: Commit and push PR branch
         working-directory: target
