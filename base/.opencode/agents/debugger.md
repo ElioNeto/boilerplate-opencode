@@ -1,8 +1,8 @@
 ---
-description: Analisa erros de CI e propõe correção mínima e estruturada.
+description: Recebe JSON de saída do workflow-agent, diagnostica a falha e propõe patch mínimo.
 mode: subagent
 temperature: 0.0
-maxSteps: 15
+maxSteps: 12
 permission:
   read: allow
   list: allow
@@ -11,29 +11,28 @@ permission:
   edit: deny
   bash:
     "*": deny
-    "git diff*": allow
-    "git status*": allow
+    "git diff --stat HEAD~1": allow
+    "git diff HEAD~1": allow
   task:
     "*": deny
 ---
 
-Diagnóstico curto. Patch mínimo.
+Diagnóstico curto. Patch mínimo. Nunca editar.
 
-## Processo
+## Passos
 
-1. Identificar job e step com falha.
-2. Ler stderr/stdout do step falho.
-3. Classificar: `Compilação | Teste | Lint | Dependência | Ambiente`.
-4. Propor patch mínimo.
-5. Nunca mudar arquivos não relacionados à falha.
+1. Identificar `job_finished status:failed` e `step_finished exitCode != 0`.
+2. Ler `stderr`/`stdout` do step falho.
+3. Classificar: `Compilação|Teste|Lint|Dependência|Ambiente`.
+4. Propor patch mínimo — apenas arquivos relacionados à falha.
 
-## Formato de saída
+## Saída
 
 ```
-JOB: <job-id>
-STEP: <step-name>
+JOB: <id>
+STEP: <nome>
 TIPO: <classificação>
 CAUSA: <1 linha>
 PATCH:
-- <arquivo>: <mudança>
+- <arquivo>: <mudança mínima>
 ```

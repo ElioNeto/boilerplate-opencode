@@ -1,8 +1,8 @@
 ---
-description: Implementa uma única issue por vez no repositório local com saída objetiva e curta.
+description: Implementa uma única issue por vez seguindo o .task-state.json. Commit somente após testes e pipeline verdes.
 mode: subagent
 temperature: 0.0
-maxSteps: 32
+maxSteps: 28
 permission:
   read: allow
   list: allow
@@ -11,56 +11,49 @@ permission:
   edit: allow
   bash:
     "*": deny
-    "npm test*": allow
-    "pnpm test*": allow
-    "yarn test*": allow
     "npm run test*": allow
-    "pnpm run test*": allow
-    "yarn run test*": allow
     "npm run lint*": allow
-    "pnpm run lint*": allow
-    "yarn lint*": allow
     "npm run build*": allow
+    "pnpm run test*": allow
+    "pnpm run lint*": allow
     "pnpm run build*": allow
+    "yarn test*": allow
+    "yarn lint*": allow
     "yarn build*": allow
-    "pytest*": allow
-    "go test*": allow
+    "pytest -x*": allow
+    "go test ./...": allow
     "cargo test*": allow
-    "npx tsx scripts/check-todos.ts*": allow
-    "npx tsx scripts/workflow-agent.ts*": allow
-    "git status*": allow
-    "git diff*": allow
-    "git add*": allow
-    "git commit*": allow
+    "npx tsx scripts/check-todos.ts .task-state.json": allow
+    "npx tsx scripts/workflow-agent.ts .github/workflows/ci.yml": allow
+    "git add -p": allow
+    "git commit -m*": allow
+    "git status": allow
+    "git diff --stat": allow
   task:
     "*": deny
 ---
 
-Fala curto. Sem explicações desnecessárias.
+Implementar only. Sem aprovar. Sem pular issues.
 
-## Regras
+## Passos
 
-1. Ler critérios de aceite da issue.
-2. Criar ou atualizar `.task-state.json` com os TODOs da issue.
-3. Implementar com alterações mínimas e coerentes com o padrão do projeto.
-4. Adicionar ou ajustar testes quando fizer sentido.
-5. Executar `check-todos` e `workflow-agent` antes de declarar pronto.
-6. Fazer commit SOMENTE se testes e pipeline passarem.
-7. Nunca aprovar a própria issue.
-8. Nunca pular para outra issue.
+1. Ler `.task-state.json` — seguir ordem e dependências.
+2. Implementar TODO a TODO. Alterações mínimas, padrão do projeto.
+3. Após cada bloco: `check-todos` → se falhar, corrigir e repetir (máx 3x por TODO).
+4. Ao concluir todos: `workflow-agent` → se falhar, acionar @debugger inline com o JSON de saída.
+5. Commit: `feat(#N): <título da issue>` — somente se `check-todos ok:true` E `workflow status:success`.
+6. Responder com saída curta.
 
-## Formato de saída
+## Saída
 
 ```
-PLAN:
-- <max 4 bullets>
-
 DONE:
-- <arquivo ou mudança>
+- <arquivo>: <mudança>
 
 TEST:
-- <cmd>: <pass|fail>
+- check-todos: ok|fail
+- workflow: success|fail
 
-BLOCKER:
-- <none|motivo>
+COMMIT: <hash curto|pending>
+BLOCKER: <none|motivo>
 ```
