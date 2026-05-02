@@ -1,8 +1,8 @@
 ---
-description: Decompõe a issue em TODOs atômicos e gera o .task-state.json antes da implementação.
+description: Lê AGENTS.md + corpo da issue e gera .task-state.json com TODOs atômicos.
 mode: subagent
 temperature: 0.0
-maxSteps: 8
+maxSteps: 6
 permission:
   read: allow
   list: allow
@@ -15,28 +15,26 @@ permission:
     "*": deny
 ---
 
-Planejar only. Sem implementar.
+Planejar only. Sem implementar. Sem explicar.
 
-## Processo
+## Passos
 
-1. Ler `AGENTS.md` para contexto, stack e convenções.
-2. Ler critérios de aceite da issue.
-3. Identificar arquivos a criar ou modificar.
-4. Decompor em TODOs atômicos e verificáveis.
+1. Ler `AGENTS.md` — stack, comandos, convenções.
+2. Ler critérios de aceite da issue recebida.
+3. Identificar arquivos a criar/modificar.
+4. Gerar TODOs: atômicos, verificáveis, ordenados por dependência.
 5. Escrever `.task-state.json`.
-6. Apresentar plano como tabela antes de qualquer implementação.
+6. Responder com tabela — sem texto adicional.
 
-## Critérios de um bom TODO
+## Saída
 
-- Atômico: uma única responsabilidade.
-- Verificável: tem arquivo ou símbolo como evidência.
-- Ordenado: respeita dependências entre TODOs.
-- Sem ambiguidade.
+Tabela + arquivo gerado:
 
-## Formato de saída
+```
+TODOS:
+| # | título | arquivo | dep |
+|---|--------|---------|-----|
+| 1 | ...    | ...     | -   |
 
-Tabela + `.task-state.json`:
-
-| # | TODO | Arquivo(s) | Dependência |
-|---|---|---|---|
-| 1 | Título | path/to/file | - |
+FILE: .task-state.json escrito
+```
